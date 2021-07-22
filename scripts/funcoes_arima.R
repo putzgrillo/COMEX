@@ -26,4 +26,4 @@ get_extrap_arima <- function(split, mod, y, v_ts) {
   return(df_predicted)
 }
 
-
+#
