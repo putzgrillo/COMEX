@@ -1,0 +1,248 @@
+---
+title: "Creating the Database"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup}
+
+knitr::opts_knit$set(root.dir = rprojroot::find_rstudio_root_file())
+
+```
+
+The purpose of this code is the creation of a .sqlite database from COMEX Data. It is not intended to create an optimized database with all keys and relations, since the database will be already available in most business situations This script has the following steps: (i) first, it downloads the files from the Brazilian Ministry of the Economy; (ii) crate a .sqlite database from the downloaded tables and (iii) delete the temporary download files. The full description of the data and its meaning can be verified at this [webpage](https://www.gov.br/produtividade-e-comercio-exterior/pt-br/assuntos/comercio-exterior/estatisticas/base-de-dados-bruta).
+
+## Loading the packages
+
+First, it is necessary to call all the packages necessary and set important parameters. The [data.table](https://cran.r-project.org/web/packages/data.table/index.html) package is required to read the .csv files (even the zipped ones). [DBI](https://cran.r-project.org/web/packages/DBI/index.html) is the general interface to send commands to a database and [RSQLite](https://cran.r-project.org/web/packages/RSQLite/index.html) that contains SQLite and allows to execute database commands without having to install a database software. In this case, the only parameter of interest is the year of earliest observation that should be present at the database.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+library(data.table)
+library(DBI)
+library(RSQLite)
+
+# string
+first_year <- 2006
+```
+
+## Downloading the files
+
+The files are available as a zipped .csv files in this [link](https://www.gov.br/produtividade-e-comercio-exterior/pt-br/assuntos/comercio-exterior/estatisticas/base-de-dados-bruta) that does not have SSL authentication and, therefore, cannot be downloaded through usual R commands as `utils::download.file()`, or reading with `data.table::fread()`. Therefore, it is necessary to call `curl` from the terminal, since it is easy to parameterise to download from not certificate webpages. The inclusion of the `-k` in the `curl` command within Ubuntu terminal eliminated the need for certification. The `-O` parameter keeps the original file name and `-X` is for request. The package `data.table` provides a fast/efficient way to import compressed tables. Instead of using `base::unz()` followed by a `base::read.table()`, that may take a long time depending on the size of the file, you just need to inform the file location preceded by "unzip -p". After reading the table, the script deletes the file from the folder. 
+
+### Export Files
+The export files are downloaded, loaded in-memory and deleted. 
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+# create export table
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/comexstat-bd/ncm/EXP_COMPLETA.zip -O", wait = TRUE)
+df_x <- data.table::fread('unzip -p EXP_COMPLETA.zip', dec = ",")
+unlink("EXP_COMPLETA.zip")
+```
+The table has the following format:
+```{r, echo = FALSE}
+knitr::kable( head(df_x) )
+```
+
+With the table in-memory, there are some transformations in the data: (i) the removal of observations from before `last_year`, (ii) the creation of a date column from numeric year and numeric month, stored as character to be converted into date in the database creation step. The numeric year and numeric month columns are removed from the table.
+
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+df_x <- within(df_x[df_x$CO_ANO >= first_year], {
+  DT <- as.character(paste(CO_ANO, sprintf("%02d", CO_MES), "01", sep = "/"))
+  VL_FOB <- as.numeric(VL_FOB)
+  KG_LIQUIDO <- as.numeric(KG_LIQUIDO)
+  QT_ESTAT <- as.numeric(QT_ESTAT)
+})
+
+df_x <- df_x[, c(12, 3:11)] # eliminate year and month columns (pos: 1, 2)
+```
+
+The final table has the following format
+```{r, echo = FALSE}
+knitr::kable(head(df_x))
+```
+
+### Import Files
+The import files follow the same layout as the export files.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/comexstat-bd/ncm/IMP_COMPLETA.zip -O", wait = TRUE)
+df_m <- data.table::fread('unzip -p IMP_COMPLETA.zip', dec = ",")
+unlink("IMP_COMPLETA.zip")
+
+df_m <- within(df_m[df_m$CO_ANO >= first_year], {
+  DT <- as.character(paste(CO_ANO, sprintf("%02d", CO_MES), "01", sep = "/"))
+  VL_FOB <- as.numeric(VL_FOB)
+  KG_LIQUIDO <- as.numeric(KG_LIQUIDO)
+  QT_ESTAT <- as.numeric(QT_ESTAT)
+})
+
+df_m <- df_m[, c(12, 3:11)] # eliminate year and month columns (pos: 1, 2)
+```
+
+
+### Reference Files
+There are some auxiliary tables that provides meaning of the codes present in several variables available at the export and import files. These tables contains information to convert codes into (i) mean of transportation, (ii) country name, (iii) product name by different categories, and so on.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+# create reference tables 
+  # # ncm code reference 
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/tabelas/NCM.csv -O", wait = TRUE)
+df_ncm <- data.table::fread('NCM.csv', dec = ",", encoding = "Latin-1")
+unlink("NCM.csv")
+
+  # # sh code reference
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/tabelas/NCM_SH.csv -O", wait = TRUE)
+df_sh <- data.table::fread('NCM_SH.csv', dec = ",", encoding = "Latin-1")
+unlink("NCM_SH.csv")
+
+  # # merge ncm and sh4 tables into Goods and Services Table
+df_ncm <- merge(x = df_ncm, y = df_sh, all.x = TRUE)
+rm(df_sh)
+
+  # # statistical unit
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/tabelas/NCM_UNIDADE.csv -O", wait = TRUE)
+df_unid <- data.table::fread('NCM_UNIDADE.csv', dec = ",", encoding = "Latin-1")
+unlink("NCM_UNIDADE.csv")
+
+  # # mean of transportation
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/tabelas/VIA.csv -O", wait = TRUE)
+df_via <- data.table::fread('VIA.csv', dec = ",", encoding = "Latin-1")
+unlink("VIA.csv")
+
+  # # country
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/tabelas/PAIS.csv -O", wait = TRUE)
+df_pais <- data.table::fread('PAIS.csv', dec = ",", encoding = "Latin-1")
+unlink("PAIS.csv")
+
+  # # country block
+system(command = "curl -k -X GET https://balanca.economia.gov.br/balanca/bd/tabelas/PAIS_BLOCO.csv -O", wait = TRUE)
+df_bloco <- data.table::fread('PAIS_BLOCO.csv', dec = ",", encoding = "Latin-1")
+unlink("PAIS_BLOCO.csv")
+
+  # # merge countries and blocks
+df_bloco <- df_bloco[df_bloco$NO_BLOCO %in% c(53, 111, 22), ] # remove duplicated entries as (EUROPA, EU), (South America, Mercosur)
+df_pais <- merge(x = df_pais, y = df_bloco, all.x = TRUE)
+rm(df_bloco)
+
+  # # create calendar table
+df_calendar <- data.frame(DT = sort(unique(df_m$DT)))
+```
+
+
+## Creating the database file
+The package DBI provides functions that allow to read or create database files. The function `DBI::dbConnect()` connects to a database using a driver (in this case, loaded from the `RSQlite` package). If the database is non-existent, it will create a file, however, the typical usage consists of passing arguments as the host name (such as an IP), the port number, the name of the database and, for security reasons, the username and password. RStudio provides a function named `rstudioapi::askForPassword()` that generates a pop-up that requires the user to type username and password. This makes the code safer by avoiding leaving sensitive information in the script. 
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+# conect to table ----
+db <- dbConnect(drv = SQLite(), 
+                dbname = "db/comex_db.sqlite") # if non-existent, it will create
+```
+
+RStudio provides in-depth documentation for database usage in this [link](https://db.rstudio.com/getting-started/).
+
+One important aspect for efficient queries is the primary key. The primary key for a table represents the column or set of columns that you use frequently in the queries. It has an associated index, for fast query performance. Query performance benefits from the NOT NULL optimization, because it cannot include any NULL values. The table data is physically organized to do ultra-fast look-ups and sorts based on the primary key column or columns. It should be noted, however, that indexes create an overhead for update, delete and insert operations because the index must also be updated. Indexes are internal structures which cannot be explicitly accessed by the user once created. An index will be used if the internal query optimization process determines it will improve the efficiency of a search. SQL queries are automatically optimized when they are internally prepared for execution. The optimization process determines the most effective way to execute each query, which may or may not involve using an applicable index.
+
+The exports and imports table will have foreign keys as the primary keys present in the reference tables. 
+
+#### Goods and Services Reference
+The following code creates a table named `t_ncm` with the goods and services reference and `CO_NCM` as the primary key.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+    # # # NCM
+sql_statement <- sprintf("CREATE TABLE %s(%s, PRIMARY KEY(%s))", 
+                         "t_ncm",
+                         paste(colnames(df_ncm), collapse = ", "),
+                         "CO_NCM")
+dbExecute(conn = db, statement = sql_statement)
+
+dbWriteTable(conn = db, name = "t_ncm", value = df_ncm, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+```
+
+#### Statistical Units Reference
+The following code creates a table named `t_units` with the statistical units reference and `CO_UNID` as the primary key.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+    # # # STATISTICAL UNITS 
+sql_statement <- sprintf("CREATE TABLE %s(%s, PRIMARY KEY(%s))", 
+                         "t_units",
+                         paste(colnames(df_unid), collapse = ", "),
+                         "CO_UNID")
+dbExecute(conn = db, statement = sql_statement)
+
+dbWriteTable(conn = db, name = "t_units", value = df_unid, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+
+```
+
+#### Means of Transportation Reference
+The following code creates a table named `t_means_transport` with the means of transportation reference and `CO_UNID` as the primary key.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+    # # # MEANS OF TRANSPORTATION 
+sql_statement <- sprintf("CREATE TABLE %s(%s, PRIMARY KEY(%s))", 
+                         "t_means_transport",
+                         paste(colnames(df_via), collapse = ", "),
+                         "CO_VIA")
+dbExecute(conn = db, statement = sql_statement)
+
+dbWriteTable(conn = db, name = "t_means_transport", value = df_via, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+```
+
+#### Countries Reference
+The following code creates a table named `t_countries` with the countries reference and `CO_PAIS` as the primary key.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+    # # # COUNTRIES
+sql_statement <- sprintf("CREATE TABLE %s(%s, PRIMARY KEY(%s))", 
+                         "t_countries",
+                         paste(colnames(df_pais), collapse = ", "),
+                         "CO_PAIS")
+dbExecute(conn = db, statement = sql_statement)
+
+dbWriteTable(conn = db, name = "t_countries", value = df_pais, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+```
+
+#### Possible Dates Reference
+The following code creates a table named `t_calendar` with the possible dates reference and without keys.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+    # # # DATES
+dbWriteTable(conn = db, name = "t_calendar", value = df_calendar, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+```
+
+#### Exports and Imports
+The following code creates tables named `t_exports` and `t_imports` with data from trade (incoming and outgoing), both tables have the set `DT, CO_NCM, CO_UNID, CO_PAIS, SG_UF_NCM, CO_VIA, CO_URF` as primary keys (each combination of these variables produce a unique value) and the foreign keys: `CO_NCM, CO_UNID, CO_VIA, CO_PAIS` that references to `t_ncm, t_units, t_means_transport, t_countries`, respectively. 
+
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+    # # # EXPORTS and IMPORTS ----
+foreign_references <- paste("FOREIGN KEY (CO_NCM) REFERENCES t_ncm(CO_NCM)", 
+                            "FOREIGN KEY (CO_UNID) REFERENCES t_units(CO_UNID)",
+                            "FOREIGN KEY (CO_VIA) REFERENCES t_means_transport(CO_VIA)",
+                            "FOREIGN KEY (CO_PAIS) REFERENCES t_countries(CO_PAIS)",
+                            sep = ", ")
+              # # # # EXPORTS
+sql_statement <- sprintf("CREATE TABLE %s(%s, PRIMARY KEY(%s), %s)", 
+                         "t_exports",
+                         paste(colnames(df_x), collapse = ", "),
+                         "DT, CO_NCM, CO_UNID, CO_PAIS, SG_UF_NCM, CO_VIA, CO_URF",
+                         foreign_references)
+
+dbExecute(conn = db, statement = sql_statement)
+
+dbWriteTable(conn = db, name = "t_exports", value = df_x, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+              # # # # IMPORTS
+sql_statement <- sprintf("CREATE TABLE %s(%s, PRIMARY KEY(%s), %s)", 
+                         "t_imports",
+                         paste(colnames(df_m), collapse = ", "),
+                         "DT, CO_NCM, CO_UNID, CO_PAIS, SG_UF_NCM, CO_VIA, CO_URF",
+                         foreign_references)
+
+dbExecute(conn = db, statement = sql_statement)
+
+dbWriteTable(conn = db, name = "t_imports", value = df_m, row.names = FALSE, method = "POSIXct", append = TRUE)
+
+```
+
+After the creation of the database with the following tables, the connection is closed.
+```{r, echo=TRUE, eval=TRUE, error=TRUE, warning=TRUE, message=FALSE, results='hide'}
+  # # disconnect
+dbDisconnect(db)
+```
+
