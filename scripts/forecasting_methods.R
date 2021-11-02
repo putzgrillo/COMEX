@@ -1,61 +1,83 @@
-# FORECASTING METHODS ----
-forecast_methods <- function(y, h, 
+# ALL METHODS MUST HAVE THE FOLLOWING
+  # # INPUTS
+      # y: time series
+      # h: prediction horizon (steps ahead)
+      # cl: confidence level (*100)
+  # # OUTPUTS
+      # a (hx3) matrix (using as.data.frame on the forecast::forecast output object)
+
+# FORECASTING METHODS (COMBINING METHODS) ----
+forecast_methods <- function(y, h, alpha = 0.05,
                              forecast_methods = c("forecast_arima", "forecast_ets", "forecast_naive",
                                                   "forecast_rwd", "forecast_snaive", "forecast_stlm", 
                                                   "forecast_tbats", "forecast_thetaf")) {
   # RUN ALL METHODS
-  lapply(setNames(as.list(forecast_methods), forecast_methods), 
-         function(x) {do.call(what = x,
-                              args = list(y = y, h = h))
-         }) |> 
-    do.call(what = cbind)
+  forecasts <- lapply(setNames(as.list(forecast_methods), forecast_methods), 
+                      function(x) {do.call(what = x,
+                                           args = list(y = y, h = h, cl = (1-alpha) * 100 ))
+                      })
+  
+  list_forecasts <- list(
+    mean = lapply(forecasts, function(x) {x[1]}) |> do.call(what = cbind) |> set_names(forecast_methods),
+                      # if residuals are not considered to be symmetric,
+    lower = lapply(forecasts, function(x) {x[2]}) |> do.call(what = cbind) |> set_names(forecast_methods),
+    upper = lapply(forecasts, function(x) {x[3]}) |> do.call(what = cbind) |> set_names(forecast_methods)
+                      # if residuals are to be considered symmetric (radius saves ~226MB for 9 models, h = 5 and 100,000 series)
+                      #                                                     saves ~488MB for 9 models, h = 24 and 100,000 series)
+    # radius = lapply(forecasts, function(x) {x[3] - x[2]}) |> do.call(what = cbind) |> set_names(forecast_methods)
+  )
+return(list_forecasts)
 }
+
 # ARIMA ----
-forecast_arima <- function(y, h) {
+forecast_arima <- function(y, h, cl) {
   forecast::forecast(object = forecast::auto.arima(y = y, stepwise = FALSE, approximation = TRUE),
-                     h = h)$mean
+                     h = h,
+                     level = cl) |> as.data.frame()
 }
 
 # ETS ----
-forecast_ets <- function(y, h) {
+forecast_ets <- function(y, h, cl) {
   forecast::forecast(object = forecast::ets(y = y,opt.crit = "mse"),
-                     h = h)$mean
+                     h = h,
+                     level = cl) |> as.data.frame()
 }
 
 # TBATS ----
-forecast_tbats <- function(y, h) {
+forecast_tbats <- function(y, h, cl) {
   forecast::forecast(object = forecast::tbats(y = y, use.parallel = FALSE),
-                     h = h)$mean
+                     h = h,
+                     level = cl) |> as.data.frame()
 }
 
 # THETAF ----
-forecast_thetaf <- function(y, h) {
-  forecast::thetaf(y = y, h = h)$mean
+forecast_thetaf <- function(y, h, cl) {
+  forecast::thetaf(y = y, h = h, level = cl) |> as.data.frame()
 }
 
 # RANDOM-WALK WITH DRIFT ----
-forecast_rwd <- function(y, h) {
-  forecast::rwf(y = y, drift = TRUE, h = h)$mean
+forecast_rwd <- function(y, h, cl) {
+  forecast::rwf(y = y, drift = TRUE, h = h, level = cl) |> as.data.frame()
 }
 
 # STLM_AR ----
-forecast_stlm <- stlm_ar_forec <- function(y, h) {
+forecast_stlm <- stlm_ar_forec <- function(y, h, cl) {
   model <- tryCatch({
     forecast::stlm(y, modelfunction = stats::ar)
   }, error = function(e) forecast::auto.arima(y, d = 0, D = 0))
-  forecast::forecast(model, h = h)$mean
+  forecast::forecast(model, h = h, level = cl) |> as.data.frame()
 }
 
 # NAIVE ----
-forecast_naive <- function(y, h) {
-  forecast::naive(y = y, h = h)$mean
+forecast_naive <- function(y, h, cl) {
+  forecast::naive(y = y, h = h, level = cl) |> as.data.frame()
 }
 
 # SEASONAL NAIVE ----
-forecast_snaive <- function(y, h) {
+forecast_snaive <- function(y, h, cl) {
   if(frequency(y) == 1) {
-    forecast::naive(y = y, h = h)$mean
+    forecast::naive(y = y, h = h, level = cl) |> as.data.frame()
   } else {
-    forecast::snaive(y = y, h = h)$mean
+    forecast::snaive(y = y, h = h, level = cl) |> as.data.frame()
   }
 }
