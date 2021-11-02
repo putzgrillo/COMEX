@@ -3,6 +3,7 @@
   # # scaled: flag to determine if the series should be scaled before calculating the features
 # OUTPUT
   # # a (n X 41) tibble with the features
+# WHEN CALLING THIS FUNCTION, AVOID CALLING TS WITH DIFFERENT FREQUENCIES (SOME SEASONAL FEATURES MIGHT NOT BE AVAILABLE)
 get_ts_features <- function(y_ts, scaled = TRUE) {
   ts_features <- tsfeatures::tsfeatures(
     y_ts,
