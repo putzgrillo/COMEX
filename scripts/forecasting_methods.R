@@ -18,13 +18,13 @@ forecast_methods <- function(y, h, alpha = 0.05,
                       })
   
   list_forecasts <- list(
-    mean = lapply(forecasts, function(x) {x[1]}) |> do.call(what = cbind) |> set_names(forecast_methods),
+    mean = lapply(forecasts, function(x) {x$mean}) |> do.call(what = cbind),
                       # if residuals are not considered to be symmetric,
-    lower = lapply(forecasts, function(x) {x[2]}) |> do.call(what = cbind) |> set_names(forecast_methods),
-    upper = lapply(forecasts, function(x) {x[3]}) |> do.call(what = cbind) |> set_names(forecast_methods)
+    lower = lapply(forecasts, function(x) {x$lower}) |> do.call(what = cbind),
+    upper = lapply(forecasts, function(x) {x$upper}) |> do.call(what = cbind) 
                       # if residuals are to be considered symmetric (radius saves ~226MB for 9 models, h = 5 and 100,000 series)
                       #                                                     saves ~488MB for 9 models, h = 24 and 100,000 series)
-    # radius = lapply(forecasts, function(x) {x[3] - x[2]}) |> do.call(what = cbind) |> set_names(forecast_methods)
+    # radius = lapply(forecasts, function(x) {x$upper - x$lower}) |> do.call(what = cbind)
   )
 return(list_forecasts)
 }
@@ -33,51 +33,51 @@ return(list_forecasts)
 forecast_arima <- function(y, h, cl) {
   forecast::forecast(object = forecast::auto.arima(y = y, stepwise = FALSE, approximation = TRUE),
                      h = h,
-                     level = cl) |> as.data.frame()
+                     level = cl)
 }
 
 # ETS ----
 forecast_ets <- function(y, h, cl) {
   forecast::forecast(object = forecast::ets(y = y,opt.crit = "mse"),
                      h = h,
-                     level = cl) |> as.data.frame()
+                     level = cl) 
 }
 
 # TBATS ----
 forecast_tbats <- function(y, h, cl) {
   forecast::forecast(object = forecast::tbats(y = y, use.parallel = FALSE),
                      h = h,
-                     level = cl) |> as.data.frame()
+                     level = cl) 
 }
 
 # THETAF ----
 forecast_thetaf <- function(y, h, cl) {
-  forecast::thetaf(y = y, h = h, level = cl) |> as.data.frame()
+  forecast::thetaf(y = y, h = h, level = cl)
 }
 
 # RANDOM-WALK WITH DRIFT ----
 forecast_rwd <- function(y, h, cl) {
-  forecast::rwf(y = y, drift = TRUE, h = h, level = cl) |> as.data.frame()
+  forecast::rwf(y = y, drift = TRUE, h = h, level = cl) 
 }
 
 # STLM_AR ----
-forecast_stlm <- stlm_ar_forec <- function(y, h, cl) {
+forecast_stlm <- function(y, h, cl) {
   model <- tryCatch({
     forecast::stlm(y, modelfunction = stats::ar)
   }, error = function(e) forecast::auto.arima(y, d = 0, D = 0))
-  forecast::forecast(model, h = h, level = cl) |> as.data.frame()
+  forecast::forecast(model, h = h, level = cl)
 }
 
 # NAIVE ----
 forecast_naive <- function(y, h, cl) {
-  forecast::naive(y = y, h = h, level = cl) |> as.data.frame()
+  forecast::naive(y = y, h = h, level = cl)
 }
 
 # SEASONAL NAIVE ----
 forecast_snaive <- function(y, h, cl) {
   if(frequency(y) == 1) {
-    forecast::naive(y = y, h = h, level = cl) |> as.data.frame()
+    forecast::naive(y = y, h = h, level = cl)
   } else {
-    forecast::snaive(y = y, h = h, level = cl) |> as.data.frame()
+    forecast::snaive(y = y, h = h, level = cl)
   }
 }
