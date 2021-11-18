@@ -31,7 +31,9 @@ return(list_forecasts)
 
 # ARIMA ----
 forecast_arima <- function(y, h, cl) {
-  forecast::forecast(object = forecast::auto.arima(y = y, stepwise = FALSE, approximation = TRUE),
+  forecast::forecast(object = forecast::auto.arima(y = y, 
+                                                   stepwise = TRUE, 
+                                                   approximation = TRUE),
                      h = h,
                      level = cl)
 }
