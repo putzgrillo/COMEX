@@ -30,7 +30,7 @@ create_rolling_ts <- function(y, h, max_windows = NA, min_obs = 60, keep_origin 
   
   # result
   rs <- mapply(function (begin, end) {list(analysis = base::subset(y, start = begin, end = end), 
-                                           assess = base::subset(y, start = end, end = end + h - 1))},
+                                           assess = base::subset(y, start = end + 1, end = end + h))},
                begin = starts, end = stops, SIMPLIFY = FALSE)
 return(rs)
 }
