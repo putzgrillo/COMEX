@@ -6,7 +6,7 @@
   # loss_metric: should be the name of a function whose arguments are: (i) 
                   # # #                           y for actual values
                   # # #                           y_hat for predicted
-get_loss <- function(actual, predicted, time_series = NULL, grouped = FALSE, loss_metric = "loss_rmse") {
+get_loss <- function(actual, predicted, time_series = NULL, grouped = FALSE, loss_metric = 'loss_rmse') {
   # CALL METHOD
   loss <- do.call(what = loss_metric,
                   args = list(y = actual, 
@@ -55,4 +55,12 @@ loss_rmse <- function(y, y_hat, ts_sample = NULL) {
   loss <- (y - y_hat) ** 2
   colnames(loss) <- c_names
 return(loss)
+}
+
+# LOSS RESIDUALS ----
+loss_residuals <- function(y, y_hat, ts_sample = NULL) {
+  c_names <- colnames(y_hat)             # ugly fix to keep names in mts (not to include operations in the beginning)
+  loss <- y - y_hat
+  colnames(loss) <- c_names
+  return(loss)
 }
