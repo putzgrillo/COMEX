@@ -20,10 +20,10 @@ ind_use <- lapply(df, function(x) {x$period == "MONTHLY" & length(x$x) > 90}) %>
 df <- df[ind_use]
   # # SAMPLE 500
 set.seed(193827)
-ind_use <- sample(seq(length(df)), size = 150, replace = FALSE)
+ind_use <- sample(seq(length(df)), size = 1000, replace = FALSE)
 df <- df[ind_use]
   # SEPARATE INTO VALIDATION AND 
-n_ahead <- 6
+n_ahead <- 12
 df <- lapply(df, function(x) {list(train = x$x,
                                    validation = base::subset(x$xx, start = 1, end = n_ahead) )})
 
@@ -35,6 +35,35 @@ load('temp_files/ts_data.RData')
 # GET FORECAST INFORMATIONS AT POSSIBLE TIMES (VERY TIME CONSUMING)
 library(parallel)
 nucleos <- parallel::detectCores() - 1
+
+# CREATE MULTIPLE LISTS
+Sys.time()
+ts_simulation <- vector("list")
+
+# CREATE INDICES FOR TEMP_MATRIX
+max_series_iteration <- 30
+index_lower <- seq(from = 1, to = length(df), by = max_series_iteration)
+index_upper <- c(index_lower[-1] - 1, length(df))
+
+# START_PROCEDURE
+for (w in seq_along(index_lower)) {
+  # create temp df with max_series_iteration series
+  temp_df <- df[index_lower[w]:index_upper[w]]
+  # run create_information_history function
+  temp_simulation <- mclapply(temp_df, function(x) {
+    create_information_history(y_ts = x$train,           # ts 
+                               horizon = n_ahead,              # how many steps ahead should be predicted?
+                               min_obs_lasso = 12,       # minimum number of observations to employ combination
+                               min_obs = 60,             # minimum number of observations in rolling_ts
+                               max_windows = 45)         # maximum number of rolling_ts's (must be bigger than min_obs_lasso)
+  }, mc.cores = nucleos)
+  # append 
+  ts_simulation <- append(ts_simulation, temp_simulation)
+  #
+  print(Sys.time())
+}
+
+
 
 t0 <- proc.time()
 ts_simulation <- mclapply(df, function(x) {
