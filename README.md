@@ -1,5 +1,3 @@
 # Dissertation
 
-Goal: meta-learning model to assign weights to forecasts from a pool of methods. 
-
-Based on FFORMS and FFORMA, however, the idea is to create a time-variant weights assignment.
+Goal: meta-learning model to select best forecast combination based on a pool of candidate methods.
